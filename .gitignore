@@ -1,0 +1,11 @@
+/node_modules
+/dist
+/.docker/dbdata
+/coverage
+/logs
+*.log
+.DS_Store
+
+# GitHub Actions artifacts
+.github/workflows/.artifacts
+.github/workflows/tmp

@@ -1,0 +1,31 @@
+flowchart TD
+    C["POST /api/v1/picks<br/>(Idempotency-Key optional)"]
+    API["api process<br/>createPickController → createPickUseCase"]
+    IDEMP["IdempotencyStore<br/>(in-memory default, or Redis)"]
+    EX(["picks.events<br/>topic exchange"])
+    QI["picks.inventory queue"]
+    QA["picks.audit queue"]
+    IW["inventory-worker<br/>processInventoryPickUseCase"]
+    AW["audit-worker<br/>handlePickAuditEvent"]
+    PG[("PostgreSQL<br/>products")]
+    LOG["Structured JSON logs"]
+    RETRY["picks.inventory.retry<br/>(TTL delay queue)"]
+    DLQ["picks.inventory.dlq"]
+
+    C --> API
+    API -->|"repeated key,\nsame payload"| IDEMP
+    API -->|"repeated key,\ndifferent payload: 409"| IDEMP
+    API -->|"202 Accepted:\npublish pick.created"| EX
+    EX --> QI
+    EX --> QA
+    QI --> IW
+    QA --> AW
+    AW --> LOG
+
+    IW <-->|"atomic UPDATE ...\nSET quantity = quantity - N\nWHERE quantity - N >= 0"| PG
+    IW -->|"stock sufficient:\npick.completed"| EX
+    IW -->|"insufficient stock or\nproduct not found:\npick.failed (not retried)"| EX
+
+    IW -->|"handler exception,\nretries left"| RETRY
+    RETRY -->|"TTL expires"| QI
+    IW -->|"handler exception,\nretries exhausted"| DLQ

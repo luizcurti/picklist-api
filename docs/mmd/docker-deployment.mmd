@@ -1,0 +1,19 @@
+flowchart LR
+    subgraph BUILD["Build stage — node:24-alpine"]
+        SRC["src/ + tsconfig.json"] -->|"npm ci<br/>tsc + tsc-alias"| DIST["dist/"]
+    end
+
+    subgraph RUNTIME["Runtime stage — node:24-alpine (non-root)"]
+        DIST -->|copy| RDIST["dist/"]
+        PKG["package.json"] -->|"npm ci --omit=dev"| NM["node_modules"]
+        RDIST --> START["node dist/shared/infra/server.js"]
+        NM --> START
+        START -->|"first boot: run migrations"| PG["PostgreSQL"]
+        HEALTH["HEALTHCHECK\nGET /health"] -.-> START
+    end
+
+    subgraph COMPOSE["docker-compose"]
+        START -->|listens :3005| PORT["Host :3005"]
+        PGC["postgres service<br/>(always started, not a profile)"] <-->|"DATABASE_URL"| PG
+        VOL[("postgres-data volume")] <--> PGC
+    end

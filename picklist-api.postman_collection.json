@@ -1,0 +1,405 @@
+{
+	"info": {
+		"_postman_id": "802b1196-81e2-43e4-b3a8-0924082cb4cc",
+		"name": "Picklist API",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "22118074"
+	},
+	"auth": {
+		"type": "apikey",
+		"apikey": [
+			{ "key": "key", "value": "X-API-Key", "type": "string" },
+			{ "key": "value", "value": "{{apiKey}}", "type": "string" },
+			{ "key": "in", "value": "header", "type": "string" }
+		]
+	},
+	"variable": [
+		{
+			"key": "apiKey",
+			"value": "dev-local-key",
+			"type": "string",
+			"description": "Matches env.ts's DEFAULT_DEV_API_KEY. Change this if the target server sets a real API_KEYS value."
+		},
+		{
+			"key": "product_code",
+			"value": "11111",
+			"type": "string",
+			"description": "Set automatically by SAVE's test script after creation — every :product_code path variable below defaults to {{product_code}}, so running the whole collection top to bottom (or just Runner/newman) chains correctly without manual edits."
+		}
+	],
+	"item": [
+		{
+			"name": "Products",
+			"item": [
+				{
+					"name": "SAVE",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('status is 201', () => pm.response.to.have.status(201));",
+									"pm.test('returns the created product', () => {",
+									"    const body = pm.response.json();",
+									"    pm.expect(body.product_code).to.be.a('string');",
+									"    pm.expect(body.quantity).to.eql(10);",
+									"    pm.expect(body.pick_location).to.eql('AA 1');",
+									"});",
+									"",
+									"// Chains every other request in this collection: they all default",
+									"// their :product_code path variable to {{product_code}}, so running",
+									"// SAVE first (Runner/newman, or just clicking through manually)",
+									"// keeps the rest pointed at whatever product was actually created.",
+									"if (pm.response.code === 201) {",
+									"    const body = pm.response.json();",
+									"    pm.collectionVariables.set('product_code', body.product_code);",
+									"}"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"product_code\": \"11111\",\n    \"quantity\": 10,\n    \"pick_location\": \"AA 1\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "localhost:3005/api/v1/products/",
+							"host": [
+								"localhost"
+							],
+							"port": "3005",
+							"path": [
+								"api",
+								"v1",
+								"products",
+								""
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "EDIT (absolute quantity)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('status is 200', () => pm.response.to.have.status(200));",
+									"pm.test('quantity was set to the absolute value', () => {",
+									"    pm.expect(pm.response.json().quantity).to.eql(15);",
+									"});"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "PUT",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"quantity\": \"15\",\n    \"pick_location\": \"AA 2\"\n}\n",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "localhost:3005/api/v1/products/:product_code",
+							"host": [
+								"localhost"
+							],
+							"port": "3005",
+							"path": [
+								"api",
+								"v1",
+								"products",
+								":product_code"
+							],
+							"variable": [
+								{
+									"key": "product_code",
+									"value": "{{product_code}}"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "EDIT (relative quantity_delta)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('status is 200', () => pm.response.to.have.status(200));",
+									"pm.test('quantity_delta was applied relative to the prior value', () => {",
+									"    // Runs right after EDIT (absolute quantity), which set quantity to 15.",
+									"    pm.expect(pm.response.json().quantity).to.eql(12);",
+									"});"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "PUT",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"quantity_delta\": -3,\n    \"pick_location\": \"AA 2\"\n}\n",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "localhost:3005/api/v1/products/:product_code",
+							"host": [
+								"localhost"
+							],
+							"port": "3005",
+							"path": [
+								"api",
+								"v1",
+								"products",
+								":product_code"
+							],
+							"variable": [
+								{
+									"key": "product_code",
+									"value": "{{product_code}}"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "LIST BY ID",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('status is 200', () => pm.response.to.have.status(200));",
+									"pm.test('returns the same product this collection created', () => {",
+									"    pm.expect(pm.response.json().product_code).to.eql(pm.collectionVariables.get('product_code'));",
+									"});"
+								]
+							}
+						}
+					],
+					"protocolProfileBehavior": {
+						"disableBodyPruning": true
+					},
+					"request": {
+						"method": "GET",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "localhost:3005/api/v1/products/:product_code",
+							"host": [
+								"localhost"
+							],
+							"port": "3005",
+							"path": [
+								"api",
+								"v1",
+								"products",
+								":product_code"
+							],
+							"variable": [
+								{
+									"key": "product_code",
+									"value": "{{product_code}}"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "LIST ALL",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('status is 200', () => pm.response.to.have.status(200));",
+									"pm.test('response is a paginated list', () => {",
+									"    const body = pm.response.json();",
+									"    pm.expect(body.data).to.be.an('array');",
+									"    pm.expect(body.pagination).to.have.all.keys('total', 'limit', 'offset', 'hasMore');",
+									"});"
+								]
+							}
+						}
+					],
+					"protocolProfileBehavior": {
+						"disableBodyPruning": true
+					},
+					"request": {
+						"method": "GET",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "localhost:3005/api/v1/products/",
+							"host": [
+								"localhost"
+							],
+							"port": "3005",
+							"path": [
+								"api",
+								"v1",
+								"products",
+								""
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Picks",
+			"item": [
+				{
+					"name": "CREATE PICK",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('status is 202', () => pm.response.to.have.status(202));",
+									"pm.test('returns an accepted pick with a pickId', () => {",
+									"    const body = pm.response.json();",
+									"    pm.expect(body.status).to.eql('accepted');",
+									"    pm.expect(body.pickId).to.be.a('string');",
+									"});"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Idempotency-Key",
+								"value": "{{$guid}}",
+								"description": "Optional. A repeated key within the TTL window returns the same pickId instead of processing the pick twice."
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"product_code\": \"{{product_code}}\",\n    \"quantity\": 2,\n    \"pick_location\": \"AA 1\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "localhost:3005/api/v1/picks/",
+							"host": [
+								"localhost"
+							],
+							"port": "3005",
+							"path": [
+								"api",
+								"v1",
+								"picks",
+								""
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Cleanup",
+			"item": [
+				{
+					"name": "DELETE",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('status is 200', () => pm.response.to.have.status(200));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "localhost:3005/api/v1/products/:product_code",
+							"host": [
+								"localhost"
+							],
+							"port": "3005",
+							"path": [
+								"api",
+								"v1",
+								"products",
+								":product_code"
+							],
+							"variable": [
+								{
+									"key": "product_code",
+									"value": "{{product_code}}"
+								}
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		}
+	]
+}

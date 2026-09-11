@@ -1,0 +1,6 @@
+node_modules
+dist
+coverage
+package-lock.json
+picklist-api.postman_collection.json
+docs/img/

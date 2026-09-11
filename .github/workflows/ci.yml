@@ -1,0 +1,118 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  ci:
+    name: CI Pipeline
+    runs-on: ubuntu-latest
+
+    # Required to run the test suite — reachable at localhost:5432 from
+    # every step below (the job runs on the runner, not in a container).
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: picklist
+          POSTGRES_USER: picklist
+          POSTGRES_PASSWORD: picklist
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U picklist"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: 🔧 Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: 📦 Install packages
+        run: npm ci
+
+      - name: 🔍 Run ESLint
+        run: npm run eslint
+
+      - name: 🎨 Check formatting
+        run: npm run format:check
+
+      - name: 🧪 Run Jest tests
+        run: npm test
+
+      - name: 🏗️ Build project
+        run: npm run build
+
+      # Production dependencies only — dev-only advisories don't block.
+      - name: 🔒 Security audit
+        run: npm audit --omit=dev --audit-level moderate || echo "⚠️ Dev dependencies have known vulnerabilities"
+
+      - name: 🐳 Build Docker image
+        run: docker build -t picklist-api:ci .
+
+      # SHA-pinned, not a version tag — trivy-action had 76/77 tags hijacked
+      # to credential-stealing malware in March 2026 (GHSA-69fq-xp46-6x23).
+      - name: 🛡️ Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0, released 2026-04-22, after the incident was fully remediated
+        with:
+          image-ref: picklist-api:ci
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'
+          ignore-unfixed: true
+
+      # --network host so the container reaches postgres at localhost:5432,
+      # same as the default DATABASE_URL everywhere else.
+      - name: 🚀 Run e2e tests against the container
+        run: |
+          docker run -d --name picklist-api-ci --network host -e API_KEYS=dev-local-key picklist-api:ci
+          for i in $(seq 1 15); do
+            if curl -sf http://localhost:3005/health > /dev/null; then
+              echo "Container is healthy"
+              break
+            fi
+            echo "Waiting for container to become healthy... ($i)"
+            sleep 2
+          done
+          npm run test:e2e
+          docker stop picklist-api-ci
+          docker rm picklist-api-ci
+
+      # Skips "Picks" — that flow needs RabbitMQ, kept out of CI on purpose
+      # (see README: more services means more flake surface). Run via npx,
+      # not an installed devDependency — newman's own tree pulls in
+      # unrelated advisories that would show up in this project's own audit.
+      - name: 📮 Run Postman collection (newman)
+        run: |
+          docker run -d --name picklist-api-postman --network host -e API_KEYS=dev-local-key picklist-api:ci
+          for i in $(seq 1 15); do
+            if curl -sf http://localhost:3005/health > /dev/null; then
+              echo "Container is healthy"
+              break
+            fi
+            echo "Waiting for container to become healthy... ($i)"
+            sleep 2
+          done
+          npx --yes newman@6 run picklist-api.postman_collection.json \
+            --env-var apiKey=dev-local-key \
+            --folder Products \
+            --folder Cleanup \
+            --reporters cli
+          docker stop picklist-api-postman
+          docker rm picklist-api-postman
+
+      - name: 📤 Upload coverage
+        uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5.5.5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage/lcov.info
+          fail_ci_if_error: false

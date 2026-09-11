@@ -1,0 +1,187 @@
+services:
+  api:
+    build: .
+    ports:
+      - '${PORT:-3005}:3005'
+    environment:
+      - NODE_ENV=production
+      - PORT=3005
+      - OTEL_SERVICE_NAME=picklist-api
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672
+      - DATABASE_URL=postgres://picklist:picklist@postgres:5432/picklist
+      # Lazily connected, like RABBITMQ_URL above — unreachable outside the
+      # `messaging` profile, but that's only a problem for a pick request
+      # carrying an Idempotency-Key, which needs `messaging` anyway.
+      - REDIS_URL=redis://redis:6379
+      # Change this for anything beyond local/demo use — see README "Authentication".
+      - API_KEYS=${API_KEYS:-dev-local-key}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "require('http').get('http://localhost:3005/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 3s
+      start_period: 5s
+    restart: unless-stopped
+
+  # Postgres is the only IProductRepository adapter — always started with
+  # the base `docker compose up`, not an opt-in profile.
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      - POSTGRES_DB=picklist
+      - POSTGRES_USER=picklist
+      - POSTGRES_PASSWORD=picklist
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - '5432:5432'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U picklist']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  # --- observability profile: docker compose --profile observability up ---
+  prometheus:
+    image: prom/prometheus:v3.0.1
+    profiles: ['observability']
+    volumes:
+      - ./observability/prometheus:/etc/prometheus:ro
+    ports:
+      - '9090:9090'
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    profiles: ['observability']
+    depends_on:
+      - prometheus
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - '3000:3000'
+    restart: unless-stopped
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.65.0
+    profiles: ['observability']
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    ports:
+      - '16686:16686' # UI
+      - '4318:4318' # OTLP HTTP
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:3.2.0
+    profiles: ['observability']
+    command: -config.file=/etc/loki/loki-config.yml
+    volumes:
+      - ./observability/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - loki-data:/loki
+    ports:
+      - '3100:3100'
+    restart: unless-stopped
+
+  promtail:
+    image: grafana/promtail:3.2.0
+    profiles: ['observability']
+    command: -config.file=/etc/promtail/promtail-config.yml
+    volumes:
+      - ./observability/promtail/promtail-config.yml:/etc/promtail/promtail-config.yml:ro
+      # Read-only access to the Docker socket to auto-discover every
+      # container's stdout — the only way Promtail sees the API/worker logs
+      # without changing how they log (still plain console.log JSON).
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - loki
+    restart: unless-stopped
+
+  # --- messaging profile: docker compose --profile messaging up ---
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    profiles: ['messaging']
+    ports:
+      - '5672:5672' # AMQP
+      - '15672:15672' # management UI
+    healthcheck:
+      test: ['CMD', 'rabbitmq-diagnostics', '-q', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Backs RedisIdempotencyStore — the only implementation that recognizes a
+  # repeated Idempotency-Key across api replicas (InMemoryIdempotencyStore
+  # is process-local). Lives in the same profile as RabbitMQ: idempotency
+  # only matters for the pick flow, which already needs `messaging`.
+  redis:
+    image: redis:8-alpine
+    profiles: ['messaging']
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  inventory-worker:
+    build: .
+    command: ['node', 'dist/shared/infra/workers/inventoryWorker.js']
+    profiles: ['messaging']
+    environment:
+      - NODE_ENV=production
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672
+      - DATABASE_URL=postgres://picklist:picklist@postgres:5432/picklist
+      - OTEL_SERVICE_NAME=picklist-inventory-worker
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
+      # Doesn't serve HTTP, but env.ts refuses to start in production
+      # without this regardless of which process imports it.
+      - API_KEYS=${API_KEYS:-dev-local-key}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    # Overrides the inherited HEALTHCHECK (GET /health) — this process
+    # doesn't serve HTTP, so that check would always fail.
+    healthcheck:
+      disable: true
+    restart: unless-stopped
+
+  audit-worker:
+    build: .
+    command: ['node', 'dist/shared/infra/workers/auditWorker.js']
+    profiles: ['messaging']
+    environment:
+      - NODE_ENV=production
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672
+      - OTEL_SERVICE_NAME=picklist-audit-worker
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
+      - API_KEYS=${API_KEYS:-dev-local-key}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    # See inventory-worker: this process doesn't serve HTTP either, so the
+    # inherited image HEALTHCHECK would always fail.
+    healthcheck:
+      disable: true
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  loki-data:
