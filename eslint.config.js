@@ -1,6 +1,9 @@
 const js = require('@eslint/js');
 const tseslint = require('typescript-eslint');
-const importPlugin = require('eslint-plugin-import');
+const { importX } = require('eslint-plugin-import-x');
+const {
+  createTypeScriptImportResolver,
+} = require('eslint-import-resolver-typescript');
 const prettierConfig = require('eslint-config-prettier');
 const globals = require('globals');
 
@@ -15,8 +18,8 @@ module.exports = tseslint.config(
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
-  importPlugin.flatConfigs.recommended,
-  importPlugin.flatConfigs.typescript,
+  importX.flatConfigs.recommended,
+  importX.flatConfigs.typescript,
   {
     languageOptions: {
       globals: {
@@ -24,9 +27,7 @@ module.exports = tseslint.config(
       },
     },
     settings: {
-      'import/resolver': {
-        typescript: true,
-      },
+      'import-x/resolver-next': [createTypeScriptImportResolver()],
     },
     rules: {
       'no-underscore-dangle': 'off',
@@ -40,8 +41,8 @@ module.exports = tseslint.config(
         'error',
         { argsIgnorePattern: 'next' },
       ],
-      'import/prefer-default-export': 'off',
-      'import/no-unresolved': 'off',
+      'import-x/prefer-default-export': 'off',
+      'import-x/no-unresolved': 'off',
     },
   },
   {

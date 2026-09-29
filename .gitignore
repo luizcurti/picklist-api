@@ -5,6 +5,7 @@
 /logs
 *.log
 .DS_Store
+.env
 
 # GitHub Actions artifacts
 .github/workflows/.artifacts
