@@ -1,0 +1,15 @@
+sequenceDiagram
+    participant ReqA as api process<br/>(PUT quantity_delta -30)
+    participant ReqB as inventory-worker process<br/>(pick -30, concurrent)
+    participant PG as PostgreSQL<br/>(product row: quantity = 100)
+
+    Note over ReqA,ReqB: Same product row, genuinely concurrent.<br/>Both issue one atomic statement —<br/>not a separate SELECT then UPDATE.
+
+    ReqA->>PG: UPDATE products SET quantity = quantity - 30<br/>WHERE code = X AND quantity - 30 >= 0
+    ReqB->>PG: UPDATE products SET quantity = quantity - 30<br/>WHERE code = X AND quantity - 30 >= 0
+
+    PG-->>ReqA: row lock granted, evaluates against 100<br/>commits: quantity = 70
+    PG-->>ReqB: waits for ReqA's lock, THEN evaluates<br/>against the now-current 70, not the stale 100<br/>commits: quantity = 40
+
+    Note over ReqA,ReqB: Final quantity: 40. Both deltas applied, no lost update.
+    Note over ReqA,ReqB: MVCC protects one statement, not a read-modify-write<br/>sequence — doing the arithmetic inside the UPDATE is what makes this safe.

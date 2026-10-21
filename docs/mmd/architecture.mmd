@@ -1,0 +1,56 @@
+flowchart TD
+    C[HTTP Client]
+
+    subgraph EXPRESS["Express App (app.ts)"]
+        MW["Middlewares\ncors, helmet, rate-limit, json"]
+        HEALTH["GET /health"]
+        DOCS["GET /docs (Swagger UI)"]
+    end
+
+    subgraph HTTP["HTTP Layer (shared/infra/http)"]
+        ROUTES["Router: /api/v1"]
+        AUTH["apiKeyAuth\n(X-API-Key required)"]
+        VAL["Validation middleware\n(Yup schemas)"]
+        CTRL["Controllers"]
+    end
+
+    subgraph APP["Application Layer (modules/products/useCases)"]
+        UC["Use Cases\nCreate / Edit / Delete / ListAll / ListById"]
+    end
+
+    subgraph DOMAIN["Domain Layer"]
+        IREPO["IProductRepository (interface)"]
+    end
+
+    subgraph INFRA["Infrastructure Layer"]
+        REPO["PostgresProductRepository\nparameterized queries via pg\natomic quantity_delta UPDATE"]
+        PG[("PostgreSQL")]
+    end
+
+    subgraph CROSS["Cross-cutting concerns"]
+        ERR["handlingErrors / AppError"]
+        LOG["Logger (structured JSON)"]
+        CFG["config/env.ts\n(validated env vars)"]
+    end
+
+    C -->|HTTP request| MW
+    MW --> HEALTH
+    MW --> DOCS
+    MW --> ROUTES
+    ROUTES --> AUTH
+    AUTH --> VAL
+    VAL --> CTRL
+    CTRL --> UC
+    UC --> IREPO
+    IREPO -.implemented by.-> REPO
+    REPO <--> PG
+
+    AUTH -. missing/invalid key .-> ERR
+    CTRL -. on throw .-> ERR
+    UC -. on throw .-> ERR
+    REPO -. on throw .-> ERR
+    REPO --> LOG
+    ERR --> LOG
+    REPO -. reads .-> CFG
+    AUTH -. reads .-> CFG
+    EXPRESS -. reads .-> CFG

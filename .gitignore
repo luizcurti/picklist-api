@@ -1,0 +1,21 @@
+/node_modules
+/dist
+/.docker/dbdata
+/coverage
+/logs
+*.log
+.DS_Store
+.env
+
+# GitHub Actions artifacts
+.github/workflows/.artifacts
+.github/workflows/tmp
+# Terraform (infra/, bootstrap/)
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan
+crash.log
+infra/ci_backend.tf
+infra/*.log

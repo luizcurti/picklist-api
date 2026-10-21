@@ -1,0 +1,45 @@
+sequenceDiagram
+    actor Client
+    participant MW as Middlewares<br/>(cors, helmet, rate-limit)
+    participant Route as Router (/api/v1)
+    participant Auth as apiKeyAuth<br/>(X-API-Key)
+    participant Val as Validation middleware<br/>(Yup)
+    participant Ctrl as Controller
+    participant UC as Use Case
+    participant Repo as PostgresProductRepository
+    participant PG as PostgreSQL
+    participant Err as handlingErrors
+
+    Client->>MW: HTTP request
+    alt rate limit exceeded
+        MW-->>Client: 429 Too Many Requests
+    else within limit
+        MW->>Route: forward request
+        Route->>Auth: check X-API-Key header
+        alt missing or invalid key
+            Auth->>Err: throw AppError(401, Unauthorized)
+            Err-->>Client: 401 JSON {message, type}
+        else key valid
+            Auth->>Val: validate body / params / query
+            alt validation fails
+                Val->>Err: throw AppError(400, VALIDATION_FAILED)
+                Err-->>Client: 400 JSON {message, type}
+            else valid
+                Val->>Ctrl: next()
+                Ctrl->>UC: execute(dto)
+                UC->>Repo: create / update / find / remove
+                Repo->>PG: read / write (MVCC, concurrent-safe)
+                PG-->>Repo: rows
+                alt not found (404) or conflict (409)
+                    Repo->>Err: throw AppError(code, type)
+                    Err-->>Client: error JSON {message, type}
+                else success
+                    Repo-->>UC: result
+                    UC-->>Ctrl: result
+                    Ctrl-->>Client: 200 / 201 JSON
+                end
+            end
+        end
+    end
+
+    Note over Ctrl,Repo: Any unhandled (non-AppError) exception<br/>is caught by express-async-errors<br/>and routed to handlingErrors → 500<br/>(stack trace hidden when NODE_ENV=production)
