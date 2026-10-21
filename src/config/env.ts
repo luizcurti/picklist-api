@@ -9,6 +9,11 @@ const envSchema = Yup.object({
   CORS_ORIGIN: Yup.string().default('*'),
   RATE_LIMIT_WINDOW_MS: Yup.number().integer().positive().default(60_000),
   RATE_LIMIT_MAX: Yup.number().integer().positive().default(100),
+  // Number of reverse proxies in front of the app (Express `trust proxy`
+  // hops), so req.ip — the rate limiter's key — is the client, not the last
+  // proxy. 0 (default) trusts no X-Forwarded-For header: right when clients
+  // connect directly, as in docker-compose.
+  TRUST_PROXY: Yup.number().integer().min(0).default(0),
   OTEL_SERVICE_NAME: Yup.string().default('picklist-api'),
   OTEL_EXPORTER_OTLP_ENDPOINT: Yup.string().default('http://localhost:4318'),
   RABBITMQ_URL: Yup.string().default('amqp://guest:guest@localhost:5672'),
@@ -52,6 +57,7 @@ export const env = {
   isProduction: parsed.NODE_ENV === 'production',
   port: parsed.PORT,
   corsOrigin: parsed.CORS_ORIGIN,
+  trustProxy: parsed.TRUST_PROXY,
   rateLimit: {
     windowMs: parsed.RATE_LIMIT_WINDOW_MS,
     max: parsed.RATE_LIMIT_MAX,
