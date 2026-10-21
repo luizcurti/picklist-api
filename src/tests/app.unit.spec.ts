@@ -92,3 +92,36 @@ describe('App /health/ready', () => {
     });
   });
 });
+
+describe('App trust proxy', () => {
+  const originalTrustProxy = process.env.TRUST_PROXY;
+
+  afterEach(() => {
+    if (originalTrustProxy === undefined) {
+      delete process.env.TRUST_PROXY;
+    } else {
+      process.env.TRUST_PROXY = originalTrustProxy;
+    }
+    jest.resetModules();
+  });
+
+  it('trusts no proxy by default', async () => {
+    delete process.env.TRUST_PROXY;
+    jest.resetModules();
+    const { App } = await import('@shared/infra/app');
+    const app: AppType = new App();
+    await app.init();
+
+    expect(app.server.get('trust proxy')).toBe(false);
+  });
+
+  it('trusts the configured number of hops when TRUST_PROXY is set', async () => {
+    process.env.TRUST_PROXY = '2';
+    jest.resetModules();
+    const { App } = await import('@shared/infra/app');
+    const app: AppType = new App();
+    await app.init();
+
+    expect(app.server.get('trust proxy')).toBe(2);
+  });
+});

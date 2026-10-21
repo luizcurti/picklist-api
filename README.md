@@ -35,6 +35,7 @@ domain layer depends on but never touches directly.
 - Unit, integration and e2e test suites, 100%-enforced coverage
 - Multi-stage Docker build running as a non-root user, with a built-in healthcheck
 - GitHub Actions CI: lint, format check, tests, build, Docker build, Trivy vulnerability scan, e2e and Postman collection runs against the container
+- Continuous deployment to AWS on every push to `main` (CloudFront + ECS Fargate + RDS PostgreSQL + ElastiCache Redis + RabbitMQ on Fargate, Terraform, GitHub OIDC), followed by an end-to-end smoke test of the async pick flow — see [Deployment](#-deployment-aws)
 - CodeQL static analysis and Dependabot (npm, Docker, GitHub Actions), weekly
 - Every GitHub Action pinned to an immutable commit SHA, not a mutable version tag, so a tag can't be silently repointed to malicious code
 
@@ -450,6 +451,7 @@ src/
 | `API_KEYS`                    | `dev-local-key` (dev only)                             | Comma-separated keys required as `X-API-Key` on `/api/v1/*` — required (no fallback) when `NODE_ENV=production` |
 | `RATE_LIMIT_WINDOW_MS`        | `60000`                                                | Rate limit window (ms) for `/api/*`                                                                             |
 | `RATE_LIMIT_MAX`              | `100`                                                  | Max requests per window for `/api/*`                                                                            |
+| `TRUST_PROXY`                 | `0`                                                    | Reverse proxies in front of the app (Express `trust proxy` hops), so the rate limiter keys on the client IP     |
 | `OTEL_SERVICE_NAME`           | `picklist-api`                                         | Service name reported to the OTel collector                                                                     |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4318`                                | OTLP HTTP endpoint (Jaeger when using the `observability` profile)                                              |
 | `RABBITMQ_URL`                | `amqp://guest:guest@localhost:5672`                    | AMQP connection string (`messaging` profile)                                                                    |
@@ -502,6 +504,24 @@ docker compose --profile observability --profile messaging up
 | `messaging`     | RabbitMQ, Redis, `inventory-worker`, `audit-worker` | [Async picking](#-async-picking) |
 
 The `api` container may restart once or twice on first boot if `postgres`/`rabbitmq` aren't healthy yet — expected (`restart: unless-stopped` lets it retry), not a bug.
+
+## 🚢 Deployment (AWS)
+
+Every push to `main` deploys the `messaging` profile to AWS once CI passes:
+CloudFront → ALB → the API on ECS Fargate, the two workers and RabbitMQ as
+Fargate services, RDS PostgreSQL and ElastiCache Redis, all in Terraform
+([`infra/`](infra)). GitHub Actions authenticates with OIDC (no AWS keys in
+GitHub), and [`scripts/smoke-test.sh`](scripts/smoke-test.sh) checks the live
+stack after each deploy, including a pick going through RabbitMQ and the
+inventory worker.
+
+```bash
+scripts/bootstrap.sh                                         # once: state bucket, deploy role, GitHub environment
+gh workflow run ci.yml --repo luizcurti/picklist-api --ref main                         # deploy
+gh workflow run destroy.yml --repo luizcurti/picklist-api --ref main -f confirm=destroy # tear down
+```
+
+Details, architecture and costs: [docs/deployment.md](docs/deployment.md).
 
 ## 🤝 Contributing
 

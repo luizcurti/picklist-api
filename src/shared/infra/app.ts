@@ -30,6 +30,10 @@ class App {
   }
 
   middlewares() {
+    if (env.trustProxy > 0) {
+      this.server.set('trust proxy', env.trustProxy);
+    }
+
     this.server.use(requestId);
     this.server.use(requestLogger);
     this.server.use(metrics);
