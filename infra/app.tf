@@ -149,7 +149,7 @@ resource "aws_ecs_task_definition" "rabbitmq" {
   family                   = "${local.name}-rabbitmq"
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
-  cpu                      = 256
+  cpu                      = 512 # the Erlang VM boots slowly on 0.25 vCPU
   memory                   = 1024
   execution_role_arn       = aws_iam_role.execution.arn
 
@@ -169,12 +169,16 @@ resource "aws_ecs_task_definition" "rabbitmq" {
     environment = [{ name = "RABBITMQ_DEFAULT_USER", value = "picklist" }]
     secrets     = [{ name = "RABBITMQ_DEFAULT_PASS", valueFrom = aws_ssm_parameter.secret["RABBITMQ_DEFAULT_PASS"].arn }]
 
+    # As the rabbitmq user, not root: the server runs as rabbitmq (the image's entrypoint
+    # drops privileges), and both share the Erlang cookie at /var/lib/rabbitmq/.erlang.cookie.
+    # A check run as root before the server has started creates that file owned by root
+    # (mode 0400), and the server then dies with "Error when reading .erlang.cookie: eacces".
     healthCheck = {
-      command     = ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
-      interval    = 15
-      timeout     = 10
-      retries     = 5
-      startPeriod = 30
+      command     = ["CMD-SHELL", "su-exec rabbitmq rabbitmq-diagnostics -q ping"]
+      interval    = 30
+      timeout     = 20
+      retries     = 3
+      startPeriod = 90
     }
 
     logConfiguration = {
